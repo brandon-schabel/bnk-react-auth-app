@@ -36,6 +36,8 @@ function CookieComponent() {
 function App() {
   const [count, setCount] = useState(0);
   const [data, setData] = useState({});
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
 
   const cookieHeader = new Headers();
 
@@ -51,6 +53,34 @@ function App() {
 
     const data = await res.json();
     setData(data);
+  };
+
+  //
+  const handleFormSubmit = async (event) => {
+    event.preventDefault();
+    // make fetch request to /login route
+    // with the form data
+
+    console.log({ event });
+
+    console.log();
+
+    const res = await fetch("http://localhost:3000/login", {
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+      body: JSON.stringify({
+        username: username,
+        password: password,
+      }),
+    });
+
+    // handle cookies
+    res.headers.getSetCookie().forEach((cookie) => {
+      console.log({ cookie });
+      document.cookie = cookie;
+    });
   };
 
   return (
@@ -79,6 +109,14 @@ function App() {
         Click on the Vite and React logos to learn more
       </p>
       <button onClick={req}>Request</button>
+
+      <form>
+        <label htmlFor="username">Username</label>
+        <input id="username" onChange={(e) => setUsername(e.target.value)} />
+        <label htmlFor="password">Password</label>
+        <input id="password" onChange={(e) => setPassword(e.target.value)} />
+        <button onClick={handleFormSubmit}>Submit</button>
+      </form>
       <CookieComponent />
     </>
   );
