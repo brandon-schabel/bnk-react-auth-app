@@ -1,5 +1,4 @@
-import { uuidv7 } from "@u-tools/core/modules/uuid";
-import { getUuidV7Date } from "@u-tools/core/modules/uuid/generate-uuid";
+import * as u from "@u-tools/core";
 import Database from "bun:sqlite";
 
 const tokenValidTime = 1000 * 60 * 60 * 24 * 7; // 7 days
@@ -8,7 +7,7 @@ const calculateTokenV7ExpireEpoch = (
   uuid: string,
   tokenValidTimeSec: number
 ) => {
-  const timestamp = getUuidV7Date(uuid);
+  const timestamp = u.uuid.uuidV7ToDate(uuid);
 
   const expireEpoch = timestamp.getTime() + tokenValidTimeSec;
 
@@ -54,7 +53,7 @@ export async function createUser(
   }: User
 ) {
   try {
-    const { uuid: userId } = uuidv7();
+    const { uuid: userId } = u.uuid.v7();
     const params = {
       $id: userId,
       $username: username,
@@ -114,8 +113,8 @@ export const loginUser = async (
   tokenValidTime = 1000 * 60 * 60 * 24 * 7
 ): Promise<User | null> => {
   const { username, password } = userInput;
-  const { uuid: salt } = uuidv7();
-  const { uuid: tokenId, timestamp } = uuidv7();
+  const { uuid: salt } = u.uuid.v7();
+  const { uuid: tokenId, timestamp } = u.uuid.v7();
 
   const passwordHash = await createToken(password, salt);
   const securityToken = await createToken(tokenId, salt);
@@ -127,7 +126,7 @@ export const loginUser = async (
 
   // If authentication failed, create a new user and return it
   return createUser(db, {
-    id: uuidv7().uuid,
+    id: u.uuid.v7().uuid,
     username,
     password_hash: passwordHash,
     salt,
@@ -152,7 +151,7 @@ export const getUser = (db: Database, username: string): User | null => {
 };
 
 export const createSecureToken = async (clientId: string) => {
-  const { uuid: salt } = uuidv7();
+  const { uuid: salt } = u.uuid.v7();
   const hash = await createToken(clientId, salt);
 
   return {

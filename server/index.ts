@@ -1,7 +1,4 @@
-import { createServerCookieFactory } from "@u-tools/core";
-import { getAllCookies } from "@u-tools/core/modules/cookies/cookie-utils";
-import { createServerFactory } from "@u-tools/core/modules/server";
-import { jsonRes } from "@u-tools/core/modules/server/request-helpers";
+import * as u from "@u-tools/core";
 import { Database } from "bun:sqlite";
 import { getUserByToken, loginUser } from "./auth";
 
@@ -32,7 +29,7 @@ db.query(
 `
 ).run();
 
-const { start, route } = createServerFactory({});
+const { start, route } = u.server.createServerFactory({});
 
 const baseReq = route("/");
 const loginReq = route("/login");
@@ -52,41 +49,32 @@ try {
       const response = new Response();
       setResponseheaders(response, reqOrigin || "");
 
-      const cookieSecret = createServerCookieFactory("secret", {
-        request,
-        response,
-      });
+      const cookieSecretFactory = u.cookies.createServerCookieFactory(
+        "secret",
+        {
+          request,
+          response,
+        }
+      );
 
       const clientId = request.headers.get("client-id") || "r#an3ld@m";
-      console.log({ clientId, req: "root" });
 
-      const allCookies = getAllCookies(request);
+      const allCookies = u.cookies.getAllCookies(request);
 
-      console.log({ allCookies });
+      const secretToken = cookieSecretFactory.getCookie(true);
 
-      const secretToken = cookieSecret.getCookie(true);
-
-      console.log({ secretToken, cookieSecret, clientId, allCookies });
-
-      // const user = getUser(db, clientId || "");
-
-      // console.log({ secretToken, user });
+      console.log({
+        secretToken,
+        cookieSecret: cookieSecretFactory,
+        clientId,
+        allCookies,
+      });
 
       const user = await getUserByToken(db, secretToken || "");
-      console.log(user);
 
       return new Response(JSON.stringify({ user }), {
         headers: response.headers,
       });
-
-      // return jsonRes(
-      //   {
-      //     message: user ? "Valid Match" : "No Valid Token",
-      //     user,
-      //   },
-      //   {},
-      //   response
-      // );
     } catch (e) {
       const errorResponse = new Response("unknown error", { status: 500 });
       const reqOrigin = request.headers.get("origin");
@@ -121,7 +109,7 @@ loginReq(async ({ request }) => {
   const user = await loginUser(db, { username, password });
 
   if (!user) {
-    return jsonRes({ message: "invalid username" });
+    return u.server.jsonRes({ message: "invalid username" });
   }
 
   const userId = user.id;
@@ -129,7 +117,7 @@ loginReq(async ({ request }) => {
   // sets cookie on the response object
   const response = new Response();
 
-  const cookieSecret = createServerCookieFactory("secret", {
+  const cookieSecret = u.cookies.createServerCookieFactory("secret", {
     request,
     response,
   });
