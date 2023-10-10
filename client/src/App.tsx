@@ -1,6 +1,5 @@
 import { useCookie } from "@u-tools/core/plugins/react/use-cookie";
 import { useState } from "react";
-import { CookieExample } from "../../server/types";
 import "./App.css";
 import reactLogo from "./assets/react.svg";
 import viteLogo from "/vite.svg";
@@ -17,7 +16,7 @@ function CookieComponent() {
     cookie: carrierCookie,
     updateCookie: updateCarrier,
     removeCookie: removeCarrier,
-  } = useCookie<CookieExample>("carrier");
+  } = useCookie<string>("userId");
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -45,6 +44,8 @@ function CookieComponent() {
       credentials: "include",
     });
 
+    // set the userId cookie
+
     // on login success, refresh the secret cookie state
     refreshSecretCookie();
   };
@@ -54,7 +55,7 @@ function CookieComponent() {
       <p>Carrier cookie: {JSON.stringify(carrierCookie)}</p>
       <button onClick={removeCarrier}>Remove Carrier Cookie</button>
 
-      <button
+      {/* <button
         onClick={() =>
           updateCarrier({
             value1: 1,
@@ -66,7 +67,7 @@ function CookieComponent() {
         }
       >
         Set Carrier Cookie
-      </button>
+      </button> */}
 
       <h1>Secret Cookie</h1>
       <button onClick={() => removeSecretCookie()}>Delete Secret Cookie</button>
@@ -87,18 +88,25 @@ function CookieComponent() {
 function App() {
   const [count, setCount] = useState(0);
   const [data, setData] = useState({});
-
-  const cookieHeader = new Headers();
-
-  cookieHeader.set("Cookie", document.cookie);
+  const [error, setError] = useState(null);
 
   const req = async () => {
-    const res = await fetch("http://localhost:3000", {
-      credentials: "include",
-    });
+    try {
+      const res = await fetch("http://localhost:3000", {
+        credentials: "include",
+      });
 
-    const data = await res.json();
-    setData(data);
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
+      }
+
+      const data = await res.json();
+      setData(data);
+      setError(null); // clear any previous error
+    } catch (e) {
+      console.error("Fetch error:", e);
+      setError(e.toString());
+    }
   };
 
   return (

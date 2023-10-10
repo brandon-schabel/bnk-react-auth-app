@@ -1,6 +1,6 @@
 import { uuidv7 } from "@u-tools/core/modules/uuid";
-import Database from "bun:sqlite";
 import { getUuidV7Date } from "@u-tools/core/modules/uuid/generate-uuid";
+import Database from "bun:sqlite";
 
 const tokenValidTime = 1000 * 60 * 60 * 24 * 7; // 7 days
 
@@ -180,4 +180,18 @@ export async function verifyToken(
   const isMatch = await Bun.password.verify(fullPassword, storedHash);
 
   return isMatch;
+}
+
+export async function getUserByToken(db: Database, tokenString: string) {
+  const user = await db
+    .query(
+      `
+    SELECT * FROM users WHERE security_token = $token
+  `
+    )
+    .get({
+      $token: tokenString,
+    });
+
+  return user as User;
 }

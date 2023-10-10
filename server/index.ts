@@ -3,7 +3,7 @@ import { getAllCookies } from "@u-tools/core/modules/cookies/cookie-utils";
 import { createServerFactory } from "@u-tools/core/modules/server";
 import { jsonRes } from "@u-tools/core/modules/server/request-helpers";
 import { Database } from "bun:sqlite";
-import { getUser, loginUser } from "./auth";
+import { getUserByToken, loginUser } from "./auth";
 
 export function setResponseheaders(response: Response, reqOrigin: string) {
   response.headers.append("Access-Control-Allow-Origin", reqOrigin);
@@ -40,14 +40,17 @@ const loginReq = route("/login");
 try {
   baseReq(async ({ request }) => {
     try {
-      const response = new Response();
       const reqOrigin = request.headers.get("origin");
 
       if (request.method === "OPTIONS") {
-        setResponseheaders(response, reqOrigin || "");
+        const optionsRes = new Response(null);
+        setResponseheaders(optionsRes, reqOrigin || "");
 
-        return response;
+        return optionsRes;
       }
+
+      const response = new Response();
+      setResponseheaders(response, reqOrigin || "");
 
       const cookieSecret = createServerCookieFactory("secret", {
         request,
@@ -55,26 +58,42 @@ try {
       });
 
       const clientId = request.headers.get("client-id") || "r#an3ld@m";
+      console.log({ clientId, req: "root" });
 
       const allCookies = getAllCookies(request);
 
+      console.log({ allCookies });
+
       const secretToken = cookieSecret.getCookie(true);
 
-      const user = getUser(db, clientId || "");
+      console.log({ secretToken, cookieSecret, clientId, allCookies });
 
-      return jsonRes(
-        {
-          message: user ? "Valid Match" : "No Valid Token",
-          user,
-        },
-        {},
-        response
-      );
+      // const user = getUser(db, clientId || "");
+
+      // console.log({ secretToken, user });
+
+      const user = await getUserByToken(db, secretToken || "");
+      console.log(user);
+
+      return new Response(JSON.stringify({ user }), {
+        headers: response.headers,
+      });
+
+      // return jsonRes(
+      //   {
+      //     message: user ? "Valid Match" : "No Valid Token",
+      //     user,
+      //   },
+      //   {},
+      //   response
+      // );
     } catch (e) {
+      const errorResponse = new Response("unknown error", { status: 500 });
+      const reqOrigin = request.headers.get("origin");
+      setResponseheaders(errorResponse, reqOrigin || "");
       console.log(e);
+      return errorResponse;
     }
-
-    return jsonRes({ message: "invalid" });
   });
 } catch (e) {
   console.log({ e });
@@ -82,6 +101,7 @@ try {
 
 loginReq(async ({ request }) => {
   const reqOrigin = request.headers.get("origin");
+  console.log({ reqOrigin });
   if (request.method === "OPTIONS") {
     const response = new Response(null);
     setResponseheaders(response, reqOrigin || "");
@@ -115,6 +135,7 @@ loginReq(async ({ request }) => {
   });
 
   response.headers.append("client-id", userId);
+
   // for client to be able to send cookies, we need to set the origin, it cannot be *
   setResponseheaders(response, reqOrigin || "");
 
