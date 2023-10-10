@@ -6,56 +6,22 @@ import reactLogo from "./assets/react.svg";
 import viteLogo from "/vite.svg";
 
 function CookieComponent() {
-  const { cookie, updateCookie, removeCookie, checkCookie } =
-    useCookie<CookieExample>("secret");
+  const {
+    cookie: cookieSecret,
+    removeCookie: removeSecretCookie,
+    checkCookie: checkSecretCookie,
+    getCookie: getSecretCookie,
+    refreshCookie: refreshSecretCookie,
+  } = useCookie<string>("secret");
+  const {
+    cookie: carrierCookie,
+    updateCookie: updateCarrier,
+    removeCookie: removeCarrier,
+  } = useCookie<CookieExample>("carrier");
 
-  console.log({ cookie });
-
-  return (
-    <div>
-      <p>Current cookie value: {JSON.stringify(cookie)}</p>
-      <button
-        onClick={() =>
-          updateCookie({
-            value1: 1,
-            value2: {
-              value3: "test",
-              value4: true,
-            },
-          })
-        }
-      >
-        Set Cookie
-      </button>
-      <button onClick={() => removeCookie()}>Delete Cookie</button>
-      {checkCookie() && <p>Cookie exists!</p>}
-    </div>
-  );
-}
-
-function App() {
-  const [count, setCount] = useState(0);
-  const [data, setData] = useState({});
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
-  const cookieHeader = new Headers();
-
-  cookieHeader.set("Cookie", document.cookie);
-
-  const req = async () => {
-    const res = await fetch("http://localhost:3000", {
-      // include cookies on request
-      // credentials: "include",
-      credentials: "include",
-      // headers: cookieHeader,
-    });
-
-    const data = await res.json();
-    setData(data);
-  };
-
-  //
   const handleFormSubmit = async (event) => {
     event.preventDefault();
     // make fetch request to /login route
@@ -71,16 +37,68 @@ function App() {
       },
       method: "POST",
       body: JSON.stringify({
+        // it would make sense to hash the username/password and send a salt
+        // but for the sake of simplicity, we'll just send the raw values
         username: username,
         password: password,
       }),
+      credentials: "include",
     });
 
-    // handle cookies
-    res.headers.getSetCookie().forEach((cookie) => {
-      console.log({ cookie });
-      document.cookie = cookie;
+    // on login success, refresh the secret cookie state
+    refreshSecretCookie();
+  };
+
+  return (
+    <div>
+      <p>Carrier cookie: {JSON.stringify(carrierCookie)}</p>
+      <button onClick={removeCarrier}>Remove Carrier Cookie</button>
+
+      <button
+        onClick={() =>
+          updateCarrier({
+            value1: 1,
+            value2: {
+              value3: "test",
+              value4: true,
+            },
+          })
+        }
+      >
+        Set Carrier Cookie
+      </button>
+
+      <h1>Secret Cookie</h1>
+      <button onClick={() => removeSecretCookie()}>Delete Secret Cookie</button>
+      {cookieSecret && <p>{getSecretCookie()}</p>}
+      {checkSecretCookie() && <p>Secret Cookie exists!</p>}
+
+      <form>
+        <label htmlFor="username">Username</label>
+        <input id="username" onChange={(e) => setUsername(e.target.value)} />
+        <label htmlFor="password">Password</label>
+        <input id="password" onChange={(e) => setPassword(e.target.value)} />
+        <button onClick={handleFormSubmit}>Submit</button>
+      </form>
+    </div>
+  );
+}
+
+function App() {
+  const [count, setCount] = useState(0);
+  const [data, setData] = useState({});
+
+  const cookieHeader = new Headers();
+
+  cookieHeader.set("Cookie", document.cookie);
+
+  const req = async () => {
+    const res = await fetch("http://localhost:3000", {
+      credentials: "include",
     });
+
+    const data = await res.json();
+    setData(data);
   };
 
   return (
@@ -110,13 +128,6 @@ function App() {
       </p>
       <button onClick={req}>Request</button>
 
-      <form>
-        <label htmlFor="username">Username</label>
-        <input id="username" onChange={(e) => setUsername(e.target.value)} />
-        <label htmlFor="password">Password</label>
-        <input id="password" onChange={(e) => setPassword(e.target.value)} />
-        <button onClick={handleFormSubmit}>Submit</button>
-      </form>
       <CookieComponent />
     </>
   );

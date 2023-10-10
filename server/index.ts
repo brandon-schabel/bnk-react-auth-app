@@ -1,35 +1,10 @@
-// Bun.serve({
-//   fetch(req) {
-//     console.log(req);
-//     const origin = req.headers.get("Origin");
-
-import {
-  createSecureHashFactory,
-  createServerCookieFactory,
-  createServerFactory,
-} from "@u-tools/core";
+import { createServerCookieFactory } from "@u-tools/core";
 import { getAllCookies } from "@u-tools/core/modules/cookies/cookie-utils";
+import { createServerFactory } from "@u-tools/core/modules/server";
 import { jsonRes } from "@u-tools/core/modules/server/request-helpers";
-
-//     // Create headers object
-//     const headers = new Headers();
-//     headers.append("Access-Control-Allow-Origin", origin);
-//     headers.append("Access-Control-Allow-Credentials", "true");
-//     headers.append("Content-Type", "application/json");
-
-//     // Handle OPTIONS method (CORS preflight)
-//     if (req.method === "OPTIONS") {
-//       headers.append("Access-Control-Allow-Methods", "GET, POST");
-//       headers.append("Access-Control-Allow-Headers", "Content-Type");
-//       return new Response(null, { headers });
-//     }
-
-//     return new Response("Hello World!", {
-//       headers,
-//     });
-//   },
-//   port: 3000,
-// });
+import { uuidv7 } from "@u-tools/core/modules/uuid";
+import { getUuidV7Date } from "@u-tools/core/modules/uuid/generate-uuid";
+import { Database } from "bun:sqlite";
 
 const clientSecurityTokenMap: Record<
   string,
@@ -40,21 +15,168 @@ const clientSecurityTokenMap: Record<
 > = {};
 
 type User = {
+  security_token: string;
+  security_token_id: string;
+  security_token_expire_dt_epoch: number;
   username: string;
-  password: string;
-  clientId: string;
+  password_hash: string;
+  id: string;
+  salt: string;
 };
 
-type Users = {
-  [username: string]: User;
+// create a sqlite database if it doesn't exist
+
+const db = new Database("data.db");
+
+// create table if no exist
+db.query(
+  `
+    CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY UNIQUE,
+        username TEXT UNIQUE,
+        password_hash TEXT UNIQUE,
+        salt TEXT UNIQUE,
+        security_token TEXT UNIQUE,
+        security_token_id TEXT UNIQUE,
+        security_token_expire_dt_epoch INTEGER
+    )
+`
+).run();
+
+const tokenValidTime = 1000 * 60 * 60 * 24 * 7; // 7 days
+
+const calculateTokenV7ExpireEpoch = (
+  uuid: string,
+  tokenValidTimeSec: number
+) => {
+  const timestamp = getUuidV7Date(uuid);
+
+  const expireEpoch = timestamp.getTime() + tokenValidTimeSec;
+
+  return expireEpoch;
 };
 
-const users: Users = {
-  test: {
-    username: "test",
-    password: "test",
-    clientId: "test",
+export const getTokenExpireEpoch = (date: Date, tokenValidTimeSec: number) => {
+  const expireEpoch = date.getTime() + tokenValidTimeSec;
+
+  return expireEpoch;
+};
+
+async function createUser({
+  username,
+  salt,
+  password_hash: password,
+  security_token,
+  security_token_id,
+  security_token_expire_dt_epoch,
+}: User) {
+  try {
+    const { uuid: userId } = uuidv7();
+    const params = {
+      $id: userId,
+      $username: username,
+      $password_hash: password,
+      $salt: salt,
+      $security_token: security_token,
+      $security_token_id: security_token_id,
+      $security_token_expire_dt_epoch: security_token_expire_dt_epoch,
+    };
+
+    db.query(
+      `
+      INSERT INTO users (id, username, password_hash, salt, security_token, security_token_id, security_token_expire_dt_epoch)
+      VALUES ($id, $username, $password_hash, $salt, $security_token, $security_token_id, $security_token_expire_dt_epoch)
+    `
+    ).run(params);
+
+    console.log("User inserted:", userId);
+    return getUser(username);
+  } catch (e) {
+    console.error({ e, note: "user creation error" });
+    return null;
+  }
+}
+
+async function authenticateUser(username: string, password: string) {
+  const existingUser = getUser(username);
+  if (!existingUser) {
+    console.log("User does not exist:", username);
+    return null;
+  }
+
+  const isMatch = await verifyToken(
+    password,
+    existingUser.salt,
+    existingUser.password_hash
+  );
+  if (!isMatch) {
+    console.log("Password is incorrect for user:", existingUser.username);
+    return null;
+  }
+
+  console.log("Login successful:", existingUser.username);
+  return existingUser;
+}
+
+const loginUser = async (
+  userInput: {
+    username: string;
+    password: string;
   },
+  tokenValidTime = 1000 * 60 * 60 * 24 * 7
+): Promise<User | null> => {
+  const { username, password } = userInput;
+  const { uuid: salt } = uuidv7();
+  const { uuid: tokenId, timestamp } = uuidv7();
+
+  const passwordHash = await createToken(password, salt);
+  const securityToken = await createToken(tokenId, salt);
+  const tokenExpireEpoch = getTokenExpireEpoch(timestamp, tokenValidTime);
+
+  // Try authenticating the user
+  const authenticatedUser = await authenticateUser(username, password);
+  if (authenticatedUser) return authenticatedUser;
+
+  // If authentication failed, create a new user and return it
+  return createUser({
+    id: uuidv7().uuid,
+    username,
+    password_hash: passwordHash,
+    salt,
+    security_token: securityToken,
+    security_token_id: tokenId,
+    security_token_expire_dt_epoch: tokenExpireEpoch,
+  });
+};
+
+const getUser = (username: string): User | null => {
+  return (
+    (db
+      .query(
+        `
+    SELECT * FROM users WHERE username = $username
+`
+      )
+      .get({
+        $username: username,
+      }) as User) || null
+  );
+};
+
+const doesUserExist = (username: string) => {
+  const user = getUser(username);
+
+  return !!user;
+};
+
+export const createSecureToken = async (clientId: string) => {
+  const { uuid: salt } = uuidv7();
+  const hash = await createToken(clientId, salt);
+
+  return {
+    salt,
+    hash,
+  };
 };
 
 function createSalt(length: number) {
@@ -78,22 +200,24 @@ async function createToken(string: string, salt: string) {
   return hash;
 }
 
-async function verifyToken(string: string, salt: string, storedHash: string) {
-  const fullPassword = string + salt;
+async function verifyToken(
+  tokenString: string,
+  salt: string,
+  storedHash: string
+) {
+  console.log({
+    tokenString,
+    salt,
+    storedHash,
+    fn: "verifyToken",
+  });
+  const fullPassword = tokenString + salt;
   const isMatch = await Bun.password.verify(fullPassword, storedHash);
 
   return isMatch;
 }
 
-const { start, route } = createServerFactory({
-  //   cors: {
-  //     origins: ["*"],
-  //     credentials: true,
-  //   },
-  //     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  //     headers: ["Content-Type", "Authorization", "Cookie", "Connection"],
-  //   },
-});
+const { start, route } = createServerFactory({});
 
 const baseReq = route("/");
 const loginReq = route("/login");
@@ -101,13 +225,8 @@ const loginReq = route("/login");
 try {
   baseReq(async ({ request }) => {
     try {
-      //     const headers = new Headers();
-      //     headers.append("Access-Control-Allow-Origin", origin);
-      //     headers.append("Access-Control-Allow-Credentials", "true");
-      //     headers.append("Content-Type", "application/json");
-
       const origin = request.headers.get("Origin");
-      //     // Handle OPTIONS method (CORS preflight)
+
       if (request.method === "OPTIONS") {
         const headers = new Headers();
 
@@ -135,45 +254,24 @@ try {
 
       const allCookies = getAllCookies(request);
 
-      const hashFactory = createSecureHashFactory();
+      console.log({ allCookies, clientId });
 
-      // create a token with the client id and a salt for that client id
-      // this is stored on the server
+      // const clientTokenLookup = clientSecurityTokenMap[clientId];
+      const secretToken = cookieSecret.getCookie(true);
 
-      const clientTokenLookup = clientSecurityTokenMap[clientId];
+      console.log({ secretToken });
 
-      if (!clientTokenLookup) {
-        const salt = createSalt(10);
-        const hash = await createToken(clientId, salt);
-        clientSecurityTokenMap[clientId] = {
-          salt,
-          hash,
-        };
+      const user = getUser(clientId || "");
+      console.log({ user });
 
-        // sets cookie on the response object
-        cookieSecret.setCookie(hash);
-      }
-
-      const storedHash = clientSecurityTokenMap[clientId].hash;
-      const salt = clientSecurityTokenMap[clientId].salt;
-
-      //   if (!secureToken) {
-      //     return jsonRes({ message: "no secure token found" });
-      //   }
-
-      // check if the token matches the client id and salt
-      const secureToken = cookieSecret.getRawCookie();
-
-      const isMatch = await verifyToken(secureToken || "", salt, storedHash);
-
-      // return jsonRes({
-      //   message: "No Valid Token",
-      // });
-
-      return response;
-
-      //   }
-      //   return jsonRes({ message: "Hello World!" });
+      return jsonRes(
+        {
+          message: user ? "Valid Match" : "No Valid Token",
+          user,
+        },
+        {},
+        response
+      );
     } catch (e) {
       console.log(e);
     }
@@ -188,50 +286,30 @@ loginReq(async ({ request }) => {
   if (request.method === "OPTIONS") {
     const headers = new Headers();
     const origin = request.headers.get("Origin");
-    headers.append("Access-Control-Allow-Origin", origin as string);
-    headers.append("Access-Control-Allow-Methods", "GET, POST");
+    headers.append("Access-Control-Allow-Origin", origin || "");
+    headers.append("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
     headers.append("Access-Control-Allow-Headers", "Content-Type");
+    headers.append("Access-Control-Allow-Credentials", "true");
     return new Response(null, { headers });
   }
 
   //  parse form data
-  console.log(request);
   // get json from request body
   const data = await request.text();
 
-  console.log(JSON.parse(data));
+  const parsedData = JSON.parse(data);
 
-  // const formData = await JSON.parse(request.body)
+  const username = parsedData.username;
+  const password = parsedData.password;
 
-  const username = "test";
-  const password = "test";
+  console.log({ username, password });
 
-  // this is just to simulate a database lookup
-  const user = users[username as string];
-
+  const user = await loginUser({ username, password });
   if (!user) {
     return jsonRes({ message: "invalid username" });
   }
 
-  const isPassCorrect = user.password === (password as string);
-
-  if (!isPassCorrect) {
-    return jsonRes({ message: "invalid password" });
-  }
-
-  // get client id from db
-  const clientId = user.clientId;
-
-  // create a token with the client id and a salt for that client id
-  // this is stored on the server
-
-  const salt = createSalt(10);
-  const hash = await createToken(clientId, salt);
-
-  clientSecurityTokenMap[clientId] = {
-    salt,
-    hash,
-  };
+  const userId = user.id;
 
   // sets cookie on the response object
   const response = new Response();
@@ -241,22 +319,23 @@ loginReq(async ({ request }) => {
     response,
   });
 
-  response.headers.append("client-id", clientId);
-  const origin = request.headers.get("Origin");
+  console.log({
+    user,
+  });
+
+  console.log({ cookieSecret });
+
+  response.headers.append("client-id", userId);
+  const origin = request.headers.get("Origin") || "";
   response.headers.append("Access-Control-Allow-Origin", origin);
   response.headers.append("Access-Control-Allow-Credentials", "true");
   response.headers.append("Content-Type", "application/json");
-  cookieSecret.setCookie(hash);
 
-  console.log({
-    username,
-    password,
-    clientId,
-    salt,
-    hash,
-  });
+  cookieSecret.setCookie(user.security_token);
+
+  console.log(response.headers);
 
   return response;
 });
 
-start({ port: 3000 });
+start({ port: 3000, verbose: true });
