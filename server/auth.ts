@@ -53,7 +53,7 @@ export async function createUser(
   }: User
 ) {
   try {
-    const { uuid: userId } = u.uuid.v7();
+    const userId = u.uuid.v7();
     const params = {
       $id: userId,
       $username: username,
@@ -113,8 +113,10 @@ export const loginUser = async (
   tokenValidTime = 1000 * 60 * 60 * 24 * 7
 ): Promise<User | null> => {
   const { username, password } = userInput;
-  const { uuid: salt } = u.uuid.v7();
-  const { uuid: tokenId, timestamp } = u.uuid.v7();
+  const salt = u.uuid.v7();
+  const { uuid: tokenId, timestamp } = u.uuid.v7({
+    returnTimestamp: true
+  });
 
   const passwordHash = await createToken(password, salt);
   const securityToken = await createToken(tokenId, salt);
@@ -126,7 +128,7 @@ export const loginUser = async (
 
   // If authentication failed, create a new user and return it
   return createUser(db, {
-    id: u.uuid.v7().uuid,
+    id: u.uuid.v7(),
     username,
     password_hash: passwordHash,
     salt,
@@ -151,7 +153,7 @@ export const getUser = (db: Database, username: string): User | null => {
 };
 
 export const createSecureToken = async (clientId: string) => {
-  const { uuid: salt } = u.uuid.v7();
+  const salt = u.uuid.v7();
   const hash = await createToken(clientId, salt);
 
   return {

@@ -1,16 +1,8 @@
 import * as u from "@u-tools/core";
+
+import { Routes, routeManager } from "@u-tools/core/modules/server";
 import { Database } from "bun:sqlite";
 import { getUserByToken, loginUser } from "./auth";
-
-export function setResponseheaders(response: Response, reqOrigin: string) {
-  response.headers.append("Access-Control-Allow-Origin", reqOrigin);
-  response.headers.append("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  response.headers.append("Access-Control-Allow-Headers", "Content-Type");
-  response.headers.append("Access-Control-Allow-Credentials", "true");
-  response.headers.append("Content-Type", "application/json");
-}
-
-// create a sqlite database if it doesn't exist
 
 const db = new Database("data.db");
 
@@ -19,8 +11,7 @@ db.query(
   `
     CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY UNIQUE,
-        username TEXT UNIQUE,
-        password_hash TEXT UNIQUE,
+        username TEXT UNIQUE,fvcg bvIQUE,
         salt TEXT UNIQUE,
         security_token TEXT UNIQUE,
         security_token_id TEXT UNIQUE,
@@ -29,109 +20,247 @@ db.query(
 `
 ).run();
 
-const { start, route } = u.server.createServerFactory({});
+const middlewareConfig = {
+  cors: (request) =>
+    u.server.corsMiddleware(request, {
+      methods: ["DELETE", "GET", "POST", "PUT", "OPTIONS", "PATCH"],
+      origins: ["http://localhost:5173"],
+      headers: [
+        "Content-Type",
+        "client-id",
+        "Cookie-Set",
+        "Cookie-Get",
+        "Cookie-Delete",
+        "Cookie-Delete-All",
+      ],
+    }),
+} satisfies u.server.MiddlewareConfigMap;
 
-const baseReq = route("/");
-const loginReq = route("/login");
+const middlware = u.server.middlewareManagerFactory(middlewareConfig);
 
-try {
-  baseReq(async ({ request }) => {
-    try {
+const headersToObj = (headers: Headers) => {
+  const obj: Record<string, string> = {};
+
+  for (const [key, value] of headers.entries()) {
+    obj[key] = value;
+  }
+
+  return obj;
+};
+
+const routes = {
+  "/": {
+    GET: (request, { cors }) => {
+      try {
+        if (cors.response.status !== 200) {
+          return cors.response;
+        }
+        // console.log({ response });
+
+        const response = new Response("hello world");
+
+        const cookieSecretFactory = u.cookies.createServerCookieFactory(
+          "secret",
+          {
+            request,
+            response,
+          }
+        );
+
+        const clientId = request.headers.get("client-id") || "r#an3ld@m";
+
+        const allCookies = u.cookies.getAllCookies(request);
+
+        const secretToken = cookieSecretFactory.getCookie(true);
+
+        console.log({
+          secretToken,
+          cookieSecret: cookieSecretFactory,
+          clientId,
+          allCookies,
+        });
+
+        const user = getUserByToken(db, secretToken || "");
+
+        return new Response(JSON.stringify({ user }), {
+          headers: response.headers,
+        });
+      } catch (e) {
+        const errorResponse = new Response("unknown error", { status: 500 });
+        const reqOrigin = request.headers.get("origin");
+        // setResponseheaders(errorResponse, reqOrigin || "");
+        console.log(e);
+        return errorResponse;
+      }
+    },
+  },
+  "/login": {
+    POST: async (request, { cors }) => {
+      console.log({ message: "at login" });
+      const corsResponse = cors.response;
       const reqOrigin = request.headers.get("origin");
 
-      if (request.method === "OPTIONS") {
-        const optionsRes = new Response(null);
-        setResponseheaders(optionsRes, reqOrigin || "");
+      //  parse form data
+      // get json from request body
+      const data = await request.text();
 
-        return optionsRes;
+      const parsedData = JSON.parse(data);
+
+      const username = parsedData.username;
+      const password = parsedData.password;
+
+      console.log({ headers: headersToObj(request.headers) });
+      // console.log({ reqOrigin, response, username, password });
+      // get all headers from response
+      // const responseHeaders = response.headers;
+
+      const user = await loginUser(db, { username, password });
+
+      if (!user) {
+        return u.server.jsonRes({ message: "invalid username" });
       }
 
-      const response = new Response();
-      setResponseheaders(response, reqOrigin || "");
+      const userId = user.id;
 
-      const cookieSecretFactory = u.cookies.createServerCookieFactory(
-        "secret",
-        {
-          request,
-          response,
-        }
-      );
+      // sets cookie on the response object
 
-      const clientId = request.headers.get("client-id") || "r#an3ld@m";
-
-      const allCookies = u.cookies.getAllCookies(request);
-
-      const secretToken = cookieSecretFactory.getCookie(true);
-
-      console.log({
-        secretToken,
-        cookieSecret: cookieSecretFactory,
-        clientId,
-        allCookies,
+      const cookieSecret = u.cookies.createServerCookieFactory("secret", {
+        request,
+        response: corsResponse,
       });
 
-      const user = await getUserByToken(db, secretToken || "");
+      corsResponse.headers.append("client-id", userId);
 
-      return new Response(JSON.stringify({ user }), {
-        headers: response.headers,
-      });
-    } catch (e) {
-      const errorResponse = new Response("unknown error", { status: 500 });
-      const reqOrigin = request.headers.get("origin");
-      setResponseheaders(errorResponse, reqOrigin || "");
-      console.log(e);
-      return errorResponse;
-    }
-  });
-} catch (e) {
-  console.log({ e });
-}
+      // for client to be able to send cookies, we need to set the origin, it cannot be *
+      // setResponseheaders(response, reqOrigin || "");
 
-loginReq(async ({ request }) => {
-  const reqOrigin = request.headers.get("origin");
-  console.log({ reqOrigin });
-  if (request.method === "OPTIONS") {
-    const response = new Response(null);
-    setResponseheaders(response, reqOrigin || "");
+      cookieSecret.setCookie(user.security_token);
 
-    return new Response(null, { headers: response.headers });
-  }
+      console.log(corsResponse.headers);
 
-  //  parse form data
-  // get json from request body
-  const data = await request.text();
+      return corsResponse;
+    },
+  },
+} satisfies Routes<ReturnType<(typeof middlware)["inferTypes"]>>;
 
-  const parsedData = JSON.parse(data);
+const { start } = u.server.serverFactory({
+  middlewareControl: middlware,
+  router: routeManager(routes),
+  optionsHandler: (request, { cors }) => {
+    console.log({
+      message: "handling option!",
+      optionsHandler: request,
+      cors,
+    });
 
-  const username = parsedData.username;
-  const password = parsedData.password;
+    // allow credentials
+    cors.response.headers.set("Access-Control-Allow-Credentials", "true");
 
-  const user = await loginUser(db, { username, password });
-
-  if (!user) {
-    return u.server.jsonRes({ message: "invalid username" });
-  }
-
-  const userId = user.id;
-
-  // sets cookie on the response object
-  const response = new Response();
-
-  const cookieSecret = u.cookies.createServerCookieFactory("secret", {
-    request,
-    response,
-  });
-
-  response.headers.append("client-id", userId);
-
-  // for client to be able to send cookies, we need to set the origin, it cannot be *
-  setResponseheaders(response, reqOrigin || "");
-
-  cookieSecret.setCookie(user.security_token);
-
-  console.log(response.headers);
-
-  return response;
+    // cors.response.headers
+    return cors?.response;
+  },
 });
 
-start({ port: 3000, verbose: true });
+start(3000);
+
+// const { start, route } = u.server.serverFactory({
+//   cors: {
+//     credentials: true,
+//     methods: ["GET", "POST", "OPTIONS"],
+//     headers: [
+//       "Content-Type",
+//       "client-id",
+//       "Cookie-Set",
+//       "Cookie-Get",
+//       "Cookie-Delete",
+//       "Cookie-Delete-All",
+//     ],
+//     origins: ["http://localhost:5173"],
+//   },
+// });
+
+// const baseReq = route("/");
+// const loginReq = route("/login");
+
+// baseReq(({ request, modResponse: response }) => {
+//   try {
+//     console.log({ response });
+
+//     const cookieSecretFactory = u.cookies.createServerCookieFactory("secret", {
+//       request,
+//       response,
+//     });
+
+//     const clientId = request.headers.get("client-id") || "r#an3ld@m";
+
+//     const allCookies = u.cookies.getAllCookies(request);
+
+//     const secretToken = cookieSecretFactory.getCookie(true);
+
+//     console.log({
+//       secretToken,
+//       cookieSecret: cookieSecretFactory,
+//       clientId,
+//       allCookies,
+//     });
+
+//     const user = getUserByToken(db, secretToken || "");
+
+//     return new Response(JSON.stringify({ user }), {
+//       headers: response.headers,
+//     });
+//   } catch (e) {
+//     const errorResponse = new Response("unknown error", { status: 500 });
+//     const reqOrigin = request.headers.get("origin");
+//     // setResponseheaders(errorResponse, reqOrigin || "");
+//     console.log(e);
+//     return errorResponse;
+//   }
+// });
+
+// loginReq(async ({ request, response, modResponse }) => {
+//   const reqOrigin = request.headers.get("origin");
+//   if (modResponse) {
+//     console.log({ modResponse });
+//   }
+
+//   //  parse form data
+//   // get json from request body
+//   const data = await request.text();
+
+//   const parsedData = JSON.parse(data);
+
+//   const username = parsedData.username;
+//   const password = parsedData.password;
+
+//   console.log({ headers: headersToObj(request.headers) });
+//   console.log({ reqOrigin, response, username, password });
+//   // get all headers from response
+//   // const responseHeaders = response.headers;
+
+//   const user = await loginUser(db, { username, password });
+
+//   if (!user) {
+//     return u.server.jsonRes({ message: "invalid username" });
+//   }
+
+//   const userId = user.id;
+
+//   // sets cookie on the response object
+
+//   const cookieSecret = u.cookies.createServerCookieFactory("secret", {
+//     request,
+//     response,
+//   });
+
+//   response.headers.append("client-id", userId);
+
+//   // for client to be able to send cookies, we need to set the origin, it cannot be *
+//   // setResponseheaders(response, reqOrigin || "");
+
+//   cookieSecret.setCookie(user.security_token);
+
+//   console.log(response.headers);
+
+//   return response;
+// });
