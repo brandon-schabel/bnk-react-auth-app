@@ -1,4 +1,4 @@
-import * as u from "@u-tools/core";
+import * as u from "@bnk/core";
 import Database from "bun:sqlite";
 
 const tokenValidTime = 1000 * 60 * 60 * 24 * 7; // 7 days

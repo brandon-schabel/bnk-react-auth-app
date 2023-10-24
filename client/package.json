@@ -10,7 +10,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@u-tools/core": "^0.0.92",
+    "@bnk/core": "0.2.12",
+    "@bnk/react": "^0.2.12",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

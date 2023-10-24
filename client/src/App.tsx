@@ -1,4 +1,4 @@
-import { useCookie } from "@u-tools/core/plugins/react/use-cookie";
+import { useCookie } from "@bnk/react/use-cookie";
 import { useState } from "react";
 import "./App.css";
 import reactLogo from "./assets/react.svg";
